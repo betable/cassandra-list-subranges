@@ -17,6 +17,7 @@ import org.apache.commons.cli.ParseException;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.transport.TFramedTransport;
+import org.apache.thrift.transport.TSSLTransportFactory;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransport;
 
@@ -30,6 +31,8 @@ public class ListSubRanges {
     private static final String PARTITIONS_OPT = "num-partitions";
     private static final String CASSANDRA_LISTEN_ADDRESS_OPT = "listen-address";
     private static final String OMIT_HEADER_OPT = "omit-header";
+    private static final String TRUST_STORE = "trust-store";
+    private static final String TRUST_STORE_PASSWORD = "trust-store-password";
     private static final Options options;
     static {
         options = new Options();
@@ -45,6 +48,10 @@ public class ListSubRanges {
                 "Number of partitions per subsplit. (default 32K)");
         options.addOption("o", OMIT_HEADER_OPT, false,
                 "Number of partitions per subsplit.");
+        options.addOption("ts", TRUST_STORE, true,
+                "SSL: full path to truststore");
+        options.addOption("tspw", TRUST_STORE_PASSWORD, true,
+                "SSL: password of the truststore");
     }
 
     static Cassandra.Client client;
@@ -55,6 +62,8 @@ public class ListSubRanges {
     static int keysPerSplit;
     static String startToken;
     static String endToken;
+    static String sslTrustStore;
+    static String sslTrustStorePassword;
 
     static boolean firstRangeOnly;
     static boolean omitHeader;
@@ -113,8 +122,16 @@ public class ListSubRanges {
     }
 
     private static void initClient() throws InvalidRequestException, TException {
-        TTransport tr = new TFramedTransport(new TSocket(nodeListenAddress, 9160));
-        tr.open();
+        TSocket ts;
+        if (sslTrustStore != null) {
+            TSSLTransportFactory.TSSLTransportParameters params = new TSSLTransportFactory.TSSLTransportParameters();
+            params.setTrustStore(sslTrustStore, sslTrustStorePassword);
+            ts = TSSLTransportFactory.getClientSocket(nodeListenAddress, 9160, 60000, params);
+        } else {
+            ts = new TSocket(nodeListenAddress, 9160);
+            ts.open();
+        }
+        TTransport tr = new TFramedTransport(ts);
         client = new Cassandra.Client(new TBinaryProtocol(tr));
         client.set_keyspace(keyspace);
     }
@@ -133,6 +150,8 @@ public class ListSubRanges {
         endToken = cmdLine.getOptionValue(END_TOKEN_OPT);
         firstRangeOnly = cmdLine.hasOption(PARTITIONER_RANGE_OPT);
         omitHeader = cmdLine.hasOption(OMIT_HEADER_OPT);
+        sslTrustStore = cmdLine.getOptionValue(TRUST_STORE, null);
+        sslTrustStorePassword = cmdLine.getOptionValue(TRUST_STORE_PASSWORD, null);
     }
 
     private static void printHelpAndExit(Options options) {
